@@ -405,7 +405,8 @@ class EnvGSSampler(Gaussian2DSampler):
         output.dist_map      = middle.dist_map        # (B, P, 1)
         output.surf_norm_map = middle.surf_norm_map   # (B, P, 3)
         output.bg_color      = torch.full_like(output.norm_map, self.bg_brightness)  # only for training and comparing with gt
-        # Reflectance related outputs
+        # Keep the no-reflection path compatible with diffuse visualization.
+        output.spec_map = torch.zeros_like(output.acc_map)
         if self.render_reflection and 'specular' in middle:
             output.spec_map  = middle.spec_map        # (B, P, 1)
             output.rough_map = middle.rough_map       # (B, P, 1)
@@ -532,7 +533,7 @@ class EnvGSSampler(Gaussian2DSampler):
         # Prepare output for supervision and visualization
         output = self.store_dif_gaussian_output(dif_output, batch)
 
-        if batch.meta.iter >= self.render_reflection_start_iter:
+        if self.render_reflection and batch.meta.iter >= self.render_reflection_start_iter:
             # Compute the reflected rays origins and directions
             ref_o, ref_d = self.get_reflect_rays(ray_o, ray_d, coords, output, batch)
 
