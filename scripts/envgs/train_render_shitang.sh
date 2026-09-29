@@ -33,7 +33,7 @@ usage() {
   RENDER_RATIO=0.25          原始相机位姿的渲染分辨率比例；1.0 为原图分辨率。
 
 渲染输出:
-  renders/original_views/<EXP_NAME>/
+  <EXP_NAME>/renders/original_views/
   使用全部原始 COLMAP 相机内外参，只保存模型通道图，不保存原图、GT、误差图或轨迹视频。
 EOF
 }
@@ -123,6 +123,7 @@ if [[ "$MODE" == "train_render" ]]; then
     "$PYTHON_BIN" easyvolcap/scripts/main.py -t test -c "$CONFIG" \
         "${COMMON_OVERRIDES[@]}" \
         "runner_cfg.visualizer_cfg.result_dir=${EXP_DIR}/test" \
+        runner_cfg.visualizer_cfg.append_exp_name=False \
         'runner_cfg.visualizer_cfg.types=[]' \
         runner_cfg.resume=True runner_cfg.load_epoch=-1
 fi
@@ -131,6 +132,7 @@ printf '\n开始全部原始相机视角渲染。\n'
 "$PYTHON_BIN" easyvolcap/scripts/main.py -t test -c "$CONFIG" \
     "${COMMON_OVERRIDES[@]}" \
     "runner_cfg.visualizer_cfg.result_dir=${RENDER_DIR}" \
+    runner_cfg.visualizer_cfg.append_exp_name=False \
     "val_dataloader_cfg.dataset_cfg.view_sample=[0,null,1]" \
     "val_dataloader_cfg.dataset_cfg.ratio=${RENDER_RATIO}" \
     runner_cfg.visualizer_cfg.store_ground_truth=False \
@@ -138,7 +140,7 @@ printf '\n开始全部原始相机视角渲染。\n'
     runner_cfg.visualizer_cfg.store_video_output=False \
     runner_cfg.resume=True runner_cfg.load_epoch=-1
 
-METRICS_FILE="${EXP_DIR}/test/${EXP_NAME}/metrics.json"
+METRICS_FILE="${EXP_DIR}/test/metrics.json"
 if [[ -f "$METRICS_FILE" ]]; then
     printf '\n验证指标：%s\n' "$METRICS_FILE"
     "$PYTHON_BIN" - "$METRICS_FILE" <<'PY'
@@ -155,5 +157,5 @@ for name in ('PSNR', 'SSIM', 'LPIPS'):
 PY
 fi
 
-printf '\n完成。\n检查点: %s\n原始视角模型渲染: %s/%s\n' \
-    "$EXP_DIR/checkpoints" "$RENDER_DIR" "$EXP_NAME"
+printf '\n完成。\n检查点: %s\n原始视角模型渲染: %s\n' \
+    "$EXP_DIR/checkpoints" "$RENDER_DIR"

@@ -28,6 +28,7 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
 
                  vis_ext: str = '.png',  # faster saving, faster viewing, not good for evaluation (metrics)
                  result_dir: str = 'data/result',
+                 append_exp_name: bool = True,
                  img_pattern: str = f'{{type}}/frame{{frame:04d}}_camera{{camera:04d}}',  # the formatting of the output
                  save_tag: str = '',
                  types: List[str] = [
@@ -54,7 +55,7 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
         self.store_image_error = store_image_error
         self.generate_video_using_cuda = generate_video_using_cuda
 
-        result_dir = join(result_dir, cfg.exp_name)  # MARK: global configuration # TODO: unify the global config, currently a hack for orbit.yaml here
+        result_dir = join(result_dir, cfg.exp_name) if append_exp_name else result_dir
         result_dir = join(result_dir, str(save_tag)) if save_tag != '' else result_dir  # could be a pure number
         self.vis_ext = vis_ext
         self.save_tag = save_tag
