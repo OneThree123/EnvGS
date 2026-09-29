@@ -1,0 +1,53 @@
+configs:
+    - configs/base.yaml
+    - configs/models/envgs.yaml
+
+exp_name: envgs_shitang
+
+runner_cfg:
+    epochs: 120
+    eval_ep: 10
+    save_ep: 120
+    visualizer_cfg:
+        store_alpha_channel: false
+        types:
+            - RENDER
+            - DEPTH
+            - ALPHA
+            - TRANSPARENCY
+            - NORMAL
+            - SURFACE_NORMAL
+            - SPECULAR
+            - DIFFUSE
+            - REFLECTION
+            - PURE_REFLECTION
+
+dataloader_cfg:
+    dataset_cfg: &dataset_cfg
+        data_root: /data/yibo/data/shitang/envgs_prepared/colmap
+        ratio: 0.25
+        n_rays: -1
+        use_normals: true
+        view_sample: [1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 25, 26, 27, 28, 29, 30, 31, 33, 34, 35, 36, 37, 38, 39, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63, 65, 66, 67, 68, 69, 70, 71, 73, 74, 75, 76, 77, 78, 79, 81, 82, 83, 84, 85, 86, 87, 89, 90, 91, 92, 93, 94, 95, 97, 98, 99, 100, 101, 102, 103, 105, 106, 107, 108, 109, 110, 111, 113, 114, 115, 116, 117, 118, 119, 121, 122, 123, 124, 125, 126, 127, 129, 130, 131, 132, 133, 134, 135, 137, 138, 139, 140, 141, 142, 143, 145, 146, 147, 148, 149, 150, 151, 153, 154, 155, 156, 157, 158, 159, 161, 162, 163, 164, 165, 166, 167, 169, 170, 171, 172, 173, 174, 175, 177, 178, 179, 180, 181, 182, 183, 185, 186, 187, 188, 189, 190, 191, 193, 194, 195, 196, 197, 198, 199]
+
+val_dataloader_cfg:
+    dataset_cfg:
+        <<: *dataset_cfg
+        view_sample: [0, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160, 168, 176, 184, 192]
+
+model_cfg:
+    sampler_cfg:
+        bounds: [[-20.0, -20.0, -20.0], [20.0, 20.0, 20.0]]
+        env_bounds: [[-25.4926700592041, -10.358494758605957, -3.1801533699035645], [9.155183792114258, 18.479787826538086, 3.323404312133789]]
+        spatial_scale: 12.184598872241246
+        preload_gs: /data/yibo/data/shitang/envgs_prepared/colmap/sparse/0/points3D.ply
+        env_preload_gs: /data/yibo/data/shitang/envgs_prepared/colmap/sparse/0/points3D.ply
+        render_reflection: true
+        use_optix_tracing: true
+    supervisor_cfg:
+        gs_norm_loss_weight: 0.04
+        gs_norm_loss_start_iter: 0
+        use_dpt_scale_gs_norm_loss: true
+        norm_loss_weight: 0.01
+        norm_loss_start_iter: 0
+        use_dpt_scale_norm_loss: true

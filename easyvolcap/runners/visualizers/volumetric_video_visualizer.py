@@ -162,6 +162,10 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
             if self.store_ground_truth and 'msk' in batch:
                 img_gt = batch.msk.expand(batch.msk.shape[:-1] + (3,))
 
+        elif type == Visualization.TRANSPARENCY:
+            if 'acc_map' not in output: return None, None, None
+            img = (1.0 - output.acc_map).expand(output.acc_map.shape[:-1] + (3,))
+
         elif type == Visualization.FLOW:
             if 'flo_map' not in output: return None, None, None
             from torchvision.utils import flow_to_image
@@ -222,6 +226,10 @@ class VolumetricVideoVisualizer:  # this should act as a base class for other ty
         elif type == Visualization.REFLECTION:
             if 'ref_rgb_map' not in output: return None, None, None
             img = output.ref_rgb_map
+
+        elif type == Visualization.PURE_REFLECTION:
+            if 'pure_reflection_rgb_map' not in output: return None, None, None
+            img = output.pure_reflection_rgb_map
 
         else:
             raise NotImplementedError(f'Unimplemented visualization type: {type}')

@@ -467,14 +467,15 @@ class EnvGSSampler(Gaussian2DSampler):
             # Update the RGB output with the specular or accumulated weight filtering
             rgb_map = middle.rgb_map[0]
             output.rgb_map[output.ref_msk] = (1 - output.spec_map[output.ref_msk]) * output.rgb_map[output.ref_msk] + output.spec_map[output.ref_msk] * rgb_map
-            ref_rgb_map = torch.zeros_like(output.rgb_map)
-            ref_rgb_map[output.ref_msk] = rgb_map
-            output.ref_rgb_map = ref_rgb_map  # (B, P, 3)
+            pure_reflection_rgb_map = torch.zeros_like(output.rgb_map)
+            pure_reflection_rgb_map[output.ref_msk] = rgb_map
         else:
             # Update the RGB output with the reflection
             output.rgb_map = (1 - output.spec_map) * output.rgb_map + output.spec_map * middle.rgb_map
-            output.ref_rgb_map = middle.rgb_map  # (B, P, 3)
-        output.ref_rgb_map = output.ref_rgb_map * output.spec_map * 2  # (B, P, 3), * 2 to make it brighter for better visualization
+            pure_reflection_rgb_map = middle.rgb_map
+
+        output.pure_reflection_rgb_map = pure_reflection_rgb_map
+        output.ref_rgb_map = pure_reflection_rgb_map * output.spec_map * 2  # * 2 to make it brighter for better visualization
 
         # Store the environment Gaussian output for supervision
         output.env_opacity = self.env.get_opacity  # (P, 1)

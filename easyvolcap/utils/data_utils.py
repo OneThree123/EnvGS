@@ -308,6 +308,8 @@ class Visualization(Enum):
     SPECULAR = auto()
     DIFFUSE = auto()
     REFLECTION = auto()
+    PURE_REFLECTION = auto()
+    TRANSPARENCY = auto()
 
     # Geometry related output
     MESH = auto()
