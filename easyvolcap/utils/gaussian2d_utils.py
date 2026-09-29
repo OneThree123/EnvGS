@@ -269,6 +269,7 @@ class GaussianModel(nn.Module):
         colors: torch.Tensor = None,
         init_occ: float = 0.1,
         init_scale: torch.Tensor = None,
+        init_rotation: torch.Tensor = None,
         sh_degree: int = 3,
         init_sh_degree: int = 0,
         spatial_scale: float = 1.0,
@@ -299,7 +300,7 @@ class GaussianModel(nn.Module):
         self.spatial_scale = spatial_scale
 
         # Initalize trainable parameters
-        self.create_from_pcd(xyz, colors, init_occ, init_scale, specular_channels, init_specular, init_roughness)
+        self.create_from_pcd(xyz, colors, init_occ, init_scale, init_rotation, specular_channels, init_specular, init_roughness)
         self.render_reflection = render_reflection
         self.specular_channels = specular_channels
         self.init_specular = init_specular
@@ -413,6 +414,7 @@ class GaussianModel(nn.Module):
         colors: torch.Tensor = None,
         opacities: float = 0.1,
         scales: torch.Tensor = None,
+        rotations: torch.Tensor = None,
         specular_channels: int = 1,
         specular: float = 1e-3,
         roughness: float = 0.5
@@ -444,7 +446,8 @@ class GaussianModel(nn.Module):
         else:
             scales = self.scaling_inverse_activation(scales)
 
-        rots = torch.rand((xyz.shape[0], 4))
+        rots = torch.rand((xyz.shape[0], 4)) if rotations is None else rotations
+        rots = torch.nn.functional.normalize(rots, dim=-1)
 
         if not isinstance(opacities, torch.Tensor) or len(opacities) != len(xyz):
             opacities = opacities * torch.ones((xyz.shape[0], 1), dtype=torch.float)
@@ -938,7 +941,7 @@ class GaussianModel(nn.Module):
         bounds: torch.Tensor = None
     ):
         from plyfile import PlyData, PlyElement
-        os.makedirs(dirname(path), exist_ok=True)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
 
         # Only save the points within the bounds
         # `bounds` is a tuple of two 3D points, representing the min and max bounds

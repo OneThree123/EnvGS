@@ -16,6 +16,7 @@ from easyvolcap.utils.optix_utils import HardwareRendering
 from easyvolcap.utils.ray_utils import get_rays, weighted_sample_rays
 from easyvolcap.utils.bound_utils import get_near_far_aabb, monotonic_near_far
 from easyvolcap.utils.gaussian2d_utils import GaussianModel, render, prepare_gaussian_camera
+from easyvolcap.utils.depth_init_utils import estimate_surfel_parameters
 from easyvolcap.utils.net_utils import VolumetricVideoModule, typed, update_optimizer_state, make_buffer
 from easyvolcap.utils.data_utils import load_pts, export_pts, to_x, to_cuda, to_cpu, to_tensor, remove_batch, save_image
 from easyvolcap.utils.colmap_utils import read_points3D_binary_custom, read_points3D_text_custom, load_sfm_ply, save_sfm_ply
@@ -29,6 +30,8 @@ class Gaussian2DSampler(VolumetricVideoModule):
 
                  # Gaussian configs
                  preload_gs: str = '',
+                 depth_init: bool = False,
+                 depth_init_knn: int = 16,
                  xyz_lr_scheduler: dotdict = None,
 
                  # sh configs
@@ -96,6 +99,8 @@ class Gaussian2DSampler(VolumetricVideoModule):
 
         # Gaussian configs
         self.preload_gs = preload_gs
+        self.depth_init = depth_init
+        self.depth_init_knn = depth_init_knn
         self.xyz_lr_scheduler = xyz_lr_scheduler
 
         # SHs configs
@@ -145,10 +150,13 @@ class Gaussian2DSampler(VolumetricVideoModule):
 
         # Load the initial point cloud from the SfM point cloud
         xyz, colors = self.init_points(self.preload_gs)
+        normals = None
+        scales, rotations = (estimate_surfel_parameters(xyz, normals, self.depth_init_knn) if self.depth_init else (None, None))
         self.pcd = GaussianModel(
             xyz=xyz, colors=colors,
             init_occ=self.init_occ,
-            init_scale=None,
+            init_scale=scales,
+            init_rotation=rotations,
             sh_degree=self.sh_deg,
             init_sh_degree=self.init_sh_deg,
             spatial_scale=self.spatial_scale,

@@ -6,6 +6,8 @@
 # For type annotation
 import gc
 import time
+from os.path import dirname, join
+
 import torch
 import signal
 import datetime
@@ -275,6 +277,13 @@ class VolumetricVideoRunner:  # a plain and simple object controlling the traini
             log(red(e))
             torch.cuda.empty_cache()
 
+    def save_reflection_point_clouds(self):
+        model = self.model.module if hasattr(self.model, 'module') else self.model
+        if hasattr(model.sampler, 'export_reflection_point_clouds'):
+            output_dir = join(dirname(self.trained_model), 'point_cloud')
+            model.sampler.export_reflection_point_clouds(output_dir)
+            log(green(f'Saved reflection point clouds to {blue(output_dir)}'))
+
     def save_model(self, epoch: int, latest: bool = True, **kwargs):
         try:
             save_model(model=self.model,
@@ -290,6 +299,12 @@ class VolumetricVideoRunner:  # a plain and simple object controlling the traini
         except RuntimeError as e:
             log(red(e))
             torch.cuda.empty_cache()
+        else:
+            try:
+                self.save_reflection_point_clouds()
+            except Exception as e:
+                log(red(f'Failed to export reflection point clouds: {e}'))
+                torch.cuda.empty_cache()
 
     def maybe_jit_model(self, batch: dotdict = None):
         if not isinstance(self.model, torch.jit.ScriptModule):

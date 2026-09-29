@@ -1,4 +1,6 @@
 import copy
+from os.path import join
+
 import torch
 import numpy as np
 from torch import nn
@@ -18,6 +20,7 @@ from easyvolcap.utils.grid_utils import sample_points_subgrid
 from easyvolcap.utils.colmap_utils import load_sfm_ply, save_sfm_ply
 from easyvolcap.utils.net_utils import freeze_module, make_params, make_buffer
 from easyvolcap.utils.gaussian2d_utils import GaussianModel, render, prepare_gaussian_camera
+from easyvolcap.utils.depth_init_utils import estimate_surfel_parameters
 from easyvolcap.utils.data_utils import load_pts, export_pts, to_x, to_cuda, to_cpu, to_tensor, remove_batch
 
 
@@ -42,6 +45,8 @@ class EnvGSSampler(Gaussian2DSampler):
 
                  # Gaussian configs
                  env_preload_gs: str = '',
+                 env_depth_init: bool = False,
+                 env_depth_init_knn: int = 16,
                  env_bounds: List[List[float]] = [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]],
                  # SHs configs
                  env_sh_deg: int = 3,
@@ -130,6 +135,8 @@ class EnvGSSampler(Gaussian2DSampler):
 
         # Environment Gaussian related parameters
         self.env_preload_gs = env_preload_gs
+        self.env_depth_init = env_depth_init
+        self.env_depth_init_knn = env_depth_init_knn
         self.env_bounds = env_bounds
         # Environment SH related parameters
         self.env_sh_deg = env_sh_deg
@@ -161,12 +168,15 @@ class EnvGSSampler(Gaussian2DSampler):
         self.last_output_env = None
 
         xyz, colors = self.init_env_points(self.env_preload_gs)
+        normals = None
+        scales, rotations = (estimate_surfel_parameters(xyz, normals, self.env_depth_init_knn) if self.env_depth_init else (None, None))
         # Create environment Gaussians
         self.env = GaussianModel(
             xyz=xyz,
             colors=colors,
             init_occ=self.env_init_occ,
-            init_scale=None,
+            init_scale=scales,
+            init_rotation=rotations,
             sh_degree=self.env_sh_deg,
             init_sh_degree=self.env_init_sh_deg,
             spatial_scale=self.spatial_scale,
@@ -190,6 +200,10 @@ class EnvGSSampler(Gaussian2DSampler):
 
         # Time statistics
         self.times = []
+
+    def export_reflection_point_clouds(self, output_dir: str):
+        self.pcd.save_ply(join(output_dir, 'primary_reflection_gs.ply'), bounds=self.bounds)
+        self.env.save_ply(join(output_dir, 'secondary_reflection_env_gs.ply'), bounds=self.env_bounds)
 
     def init_env_points(self, ply_file: str = None, S: int = 32, N: int = 5):
         # Try to load the ply file
