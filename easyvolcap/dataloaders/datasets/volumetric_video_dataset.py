@@ -50,7 +50,7 @@ from easyvolcap.utils.dist_utils import get_rank, get_world_size, get_distribute
 from easyvolcap.utils.cam_utils import average_c2ws, align_c2ws, average_w2cs, Sourcing
 from easyvolcap.utils.math_utils import affine_inverse, affine_padding, torch_inverse_3x3, point_padding
 from easyvolcap.utils.bound_utils import get_bound_2d_bound, get_bounds, monotonic_near_far, get_bound_3d_near_far
-from easyvolcap.utils.data_utils import DataSplit, UnstructuredTensors, load_resize_undist_ims_bytes, load_image_from_bytes, as_torch_func, to_cuda, to_cpu, to_tensor, export_pts, load_pts, decode_crop_fill_ims_bytes, decode_fill_ims_bytes, load_resize_undist_im_bytes, decode_crop_fill_im_bytes, normalize_image
+from easyvolcap.utils.data_utils import DataSplit, UnstructuredTensors, load_resize_undist_ims_bytes, load_image_from_bytes, load_depth, resize_sparse_depth_min, as_torch_func, to_cuda, to_cpu, to_tensor, export_pts, load_pts, decode_crop_fill_ims_bytes, decode_fill_ims_bytes, load_resize_undist_im_bytes, decode_crop_fill_im_bytes, normalize_image
 
 cv2.setNumThreads(1)  # MARK: only 1 thread for opencv undistortion, high cpu, not faster
 
@@ -97,6 +97,9 @@ class VolumetricVideoDataset(Dataset):
                  # Depth related configs
                  depths_dir: str = 'depths',
                  use_depths: bool = False,
+                 depth_format: str = 'exr',
+                 depth_path_mode: str = 'image',
+                 sparse_depth_resize: str = 'min',
 
                  # Normal related configs
                  normals_dir: str = 'normals',
@@ -240,6 +243,17 @@ class VolumetricVideoDataset(Dataset):
         self.encode_ext = encode_ext
         self.cache_raw = cache_raw  # use raw pixels to further accelerate training
         self.use_depths = use_depths  # use visual hulls as a prior
+        self.depth_format = depth_format.lower()
+        self.depth_path_mode = depth_path_mode
+        self.sparse_depth_resize = sparse_depth_resize
+        self.use_sparse_npy_depth = self.use_depths and self.depth_format == 'npy'
+        if self.use_depths:
+            if self.depth_format not in ('exr', 'npy'):
+                raise ValueError(f'Unsupported depth format: {self.depth_format}')
+            if self.depth_path_mode not in ('image', 'camera_index'):
+                raise ValueError(f'Unsupported depth path mode: {self.depth_path_mode}')
+            if self.use_sparse_npy_depth and self.sparse_depth_resize != 'min':
+                raise ValueError(f'Unsupported sparse depth resize: {self.sparse_depth_resize}')
         self.use_vhulls = use_vhulls and use_masks  # use visual hulls as a prior
         self.use_masks = use_masks  # always load mask if using vhulls
         self.use_smpls = use_smpls  # use smpls as a prior
@@ -429,10 +443,23 @@ class VolumetricVideoDataset(Dataset):
 
         # Depth image path preparation
         if self.use_depths:
-            self.dps = np.asarray([im.replace(self.images_dir, self.depths_dir).replace('.jpg', '.exr').replace('.png', '.exr') for im in self.ims.ravel()]).reshape(self.ims.shape)
-            if not exists(self.dps[0, 0]):
-                self.dps = np.asarray([dp.replace('.exr', 'exr') for dp in self.dps.ravel()]).reshape(self.dps.shape)
-            self.dps_dir = join(*split(dirname(self.dps[0, 0]))[:-1])  # logging only
+            if self.depth_format == 'npy' and self.depth_path_mode == 'camera_index':
+                depth_paths = []
+                for camera_name in self.camera_names:
+                    try:
+                        camera_index = int(camera_name)
+                    except ValueError as exc:
+                        raise ValueError(f'camera_index depth path mode requires numeric camera names, got {camera_name!r}') from exc
+                    depth_paths.append(join(self.data_root, self.depths_dir, f'{camera_index:06d}.npy'))
+                self.dps = np.repeat(np.asarray(depth_paths, dtype=str)[:, None], self.ims.shape[1], axis=1)
+                self.dps_dir = join(self.data_root, self.depths_dir)
+                if not exists(self.dps[0, 0]):
+                    raise FileNotFoundError(f'Camera-index sparse depth file not found: {self.dps[0, 0]}')
+            else:
+                self.dps = np.asarray([im.replace(self.images_dir, self.depths_dir).replace('.jpg', '.exr').replace('.png', '.exr') for im in self.ims.ravel()]).reshape(self.ims.shape)
+                if not exists(self.dps[0, 0]):
+                    self.dps = np.asarray([dp.replace('.exr', 'exr') for dp in self.dps.ravel()]).reshape(self.dps.shape)
+                self.dps_dir = join(*split(dirname(self.dps[0, 0]))[:-1])  # logging only
 
         # Normal image path preparation
         if self.use_normals:
@@ -488,7 +515,7 @@ class VolumetricVideoDataset(Dataset):
                                              dist_opt_K=self.dist_opt_K, backend=self.backend, encode_ext=self.encode_ext, num_workers=self.dataloading_workers)
 
         # Maybe load depth images here, using HDR
-        if self.use_depths:  # TODO: implement HDR loading
+        if self.use_depths and not self.use_sparse_npy_depth:  # TODO: implement HDR loading
             self.dps_bytes, self.Ks, self.Hs, self.Ws = \
                 load_resize_undist_ims_bytes(self.dps, ori_Ks.numpy(), ori_Ds.numpy(), ratio, self.center_crop_size,
                                              f'Loading dpts bytes for {blue(self.dps_dir)} {magenta(self.split.name)}',
@@ -832,6 +859,27 @@ class VolumetricVideoDataset(Dataset):
 
         return view_index, latent_index, camera_index, frame_index
 
+    def load_sparse_depth(self, depth_path: str, D: np.ndarray, ratio):
+        if self.dist_opt_K and np.any(np.abs(D) != 0):
+            raise NotImplementedError('Sparse .npy depth with nonzero distortion requires z-buffer undistortion')
+
+        depth = load_depth(depth_path).astype(np.float32, copy=False)
+        depth[~np.isfinite(depth) | (depth <= 0)] = 0
+        in_h, in_w = depth.shape[:2]
+        if not (isinstance(ratio, float) and ratio == 1.0):
+            if isinstance(ratio, float):
+                out_h, out_w = int(in_h * ratio), int(in_w * ratio)
+            else:
+                out_h, out_w = ratio
+            depth = resize_sparse_depth_min(depth, int(out_h), int(out_w))
+
+        if self.center_crop_size[0] > 0:
+            crop_h, crop_w = self.center_crop_size
+            y = int((depth.shape[0] - crop_h) * 0.5)
+            x = int((depth.shape[1] - crop_w) * 0.5)
+            depth = depth[y:y + crop_h, x:x + crop_w]
+        return depth
+
     def get_image_bytes(self, view_index: int, latent_index: int):
         latent_index = self.virtual_to_physical(latent_index)
         im_bytes = self.ims_bytes[view_index * self.n_latents + latent_index]  # MARK: no fancy indexing
@@ -841,7 +889,7 @@ class VolumetricVideoDataset(Dataset):
         else:
             mk_bytes, wt_bytes = None, None
 
-        if self.use_depths:
+        if self.use_depths and hasattr(self, 'dps_bytes'):
             dp_bytes = self.dps_bytes[view_index * self.n_latents + latent_index]
         else:
             dp_bytes = None
@@ -889,7 +937,15 @@ class VolumetricVideoDataset(Dataset):
         wet[msk < self.bkgd_weight] = self.bkgd_weight
 
         # Load depth from bytes
-        if dp_bytes is not None:
+        if self.use_sparse_npy_depth:
+            physical_latent_index = self.virtual_to_physical(latent_index)
+            ratio = self.imsize_overwrite if self.imsize_overwrite[0] > 0 else self.ratio
+            dpt = torch.as_tensor(self.load_sparse_depth(
+                self.dps[view_index][physical_latent_index],
+                self.Ds[view_index][physical_latent_index].numpy(),
+                ratio,
+            ))
+        elif dp_bytes is not None:
             if self.cache_raw:
                 dpt = torch.as_tensor(dp_bytes)
             else:
@@ -931,8 +987,11 @@ class VolumetricVideoDataset(Dataset):
         # Maybe load depth images here, using HDR
         if self.use_depths:
             dp = self.dps[view_index][latent_index]
-            dp, _, _, _ = load_resize_undist_im_bytes(dp, K.numpy(), D.numpy(), ratio, self.center_crop_size, decode_flag=cv2.IMREAD_UNCHANGED, dist_opt_K=self.dist_opt_K, backend=self.backend, encode=False)  # will for a grayscale read from bytes
-            dp = dp[..., None]
+            if self.use_sparse_npy_depth:
+                dp = self.load_sparse_depth(dp, D.numpy(), ratio)
+            else:
+                dp, _, _, _ = load_resize_undist_im_bytes(dp, K.numpy(), D.numpy(), ratio, self.center_crop_size, decode_flag=cv2.IMREAD_UNCHANGED, dist_opt_K=self.dist_opt_K, backend=self.backend, encode=False)  # will for a grayscale read from bytes
+                dp = dp[..., None]
 
         # Maybe load normal images here
         if self.use_normals:
@@ -1296,7 +1355,11 @@ class VolumetricVideoDataset(Dataset):
             rgb = as_torch_func(partial(cv2.resize, dsize=(W, H), interpolation=cv2.INTER_AREA))(rgb)
             msk = as_torch_func(partial(cv2.resize, dsize=(W, H), interpolation=cv2.INTER_AREA))(msk)
             wet = as_torch_func(partial(cv2.resize, dsize=(W, H), interpolation=cv2.INTER_AREA))(wet)
-            if dpt is not None: dpt = as_torch_func(partial(cv2.resize, dsize=(W, H), interpolation=cv2.INTER_AREA))(dpt)
+            if dpt is not None:
+                if self.use_sparse_npy_depth:
+                    dpt = as_torch_func(partial(resize_sparse_depth_min, out_h=H, out_w=W))(dpt)
+                else:
+                    dpt = as_torch_func(partial(cv2.resize, dsize=(W, H), interpolation=cv2.INTER_AREA))(dpt)
             if bkg is not None: bkg = as_torch_func(partial(cv2.resize, dsize=(W, H), interpolation=cv2.INTER_AREA))(bkg)
             if norm is not None: norm = as_torch_func(partial(cv2.resize, dsize=(W, H), interpolation=cv2.INTER_AREA))(norm)
 
@@ -1313,7 +1376,7 @@ class VolumetricVideoDataset(Dataset):
             rgb = rgb[y: y + h, x: x + w, :]
             msk = msk[y: y + h, x: x + w, :]
             wet = wet[y: y + h, x: x + w, :]
-            if dpt is not None: dpt[y: y + h, x: x + w, :]
+            if dpt is not None: dpt = dpt[y: y + h, x: x + w, :]
             if bkg is not None: bkg[y: y + h, x: x + w, :]
             if norm is not None: norm[y: y + h, x: x + w, :]
 

@@ -1117,6 +1117,26 @@ def load_image_file(img_path: str, ratio=1.0):
         return img
 
 
+def resize_sparse_depth_min(depth: np.ndarray, out_h: int, out_w: int) -> np.ndarray:
+    """Z-buffer downsample sparse z-depth; invalid or uncovered pixels are zero."""
+    depth = np.asarray(depth, dtype=np.float32)
+    if depth.ndim == 3:
+        depth = depth[..., 0]
+    in_h, in_w = depth.shape
+    if out_h > in_h or out_w > in_w:
+        raise ValueError(f'Sparse depth resize only supports downsampling: {(in_h, in_w)} -> {(out_h, out_w)}')
+
+    valid = np.isfinite(depth) & (depth > 0)
+    result = np.full(out_h * out_w, np.inf, dtype=np.float32)
+    ys, xs = np.nonzero(valid)
+    if len(ys):
+        dst_y = np.minimum(ys * out_h // in_h, out_h - 1)
+        dst_x = np.minimum(xs * out_w // in_w, out_w - 1)
+        np.minimum.at(result, dst_y * out_w + dst_x, depth[ys, xs])
+    result[~np.isfinite(result)] = 0
+    return result.reshape(out_h, out_w, 1)
+
+
 def load_depth(depth_file: str):
     if depth_file.endswith('.npy'):
         depth = np.load(depth_file)[..., None]  # H, W, 1
