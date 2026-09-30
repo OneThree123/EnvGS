@@ -50,7 +50,7 @@ model_cfg:
         render_reflection: true
         use_optix_tracing: true
     supervisor_cfg:
-        dpt_loss_weight: 0.01
+        dpt_loss_weight: 0.1
         dpt_loss_type: SMOOTHL1
         gs_norm_loss_weight: 0.04
         gs_norm_loss_start_iter: 0

@@ -130,6 +130,7 @@ fi
     "${TRAIN_OVERRIDES[@]}"
 
 printf '\n训练完成，计算验证指标（不保存重复图像）。\n'
+mkdir -p "$TEST_DIR"
 "$PYTHON_BIN" easyvolcap/scripts/main.py -t test -c "$CONFIG" \
     "${COMMON_OVERRIDES[@]}" \
     "runner_cfg.visualizer_cfg.result_dir=${TEST_DIR}" \
@@ -150,8 +151,10 @@ printf '\n开始全部原始相机视角渲染。\n'
     runner_cfg.resume=True runner_cfg.load_epoch=-1
 
 require_path "$EXP_DIR/checkpoints/latest.pt" "训练完成后的 latest.pt"
-require_path "$EXP_DIR/point_cloud/primary_reflection_gs.ply" "一次反射 Gaussian 点云"
-require_path "$EXP_DIR/point_cloud/secondary_reflection_env_gs.ply" "二次反射环境 Gaussian 点云"
+if [[ ! -f "$EXP_DIR/point_cloud/primary_reflection_gs.ply" || ! -f "$EXP_DIR/point_cloud/secondary_reflection_env_gs.ply" ]]; then
+    echo "错误：未导出反射 Gaussian 点云；请检查训练日志中的 'Saved reflection point clouds' 或 'Failed to export reflection point clouds'。" >&2
+    exit 1
+fi
 require_path "$TEST_DIR/metrics.json" "PSNR/SSIM/LPIPS 指标"
 compgen -G "$RECORD_DIR/events.out.tfevents.*" >/dev/null || {
     echo "错误：未生成 TensorBoard 训练日志：$RECORD_DIR" >&2

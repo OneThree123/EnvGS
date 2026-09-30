@@ -280,7 +280,7 @@ class VolumetricVideoRunner:  # a plain and simple object controlling the traini
     def save_reflection_point_clouds(self):
         model = self.model.module if hasattr(self.model, 'module') else self.model
         if hasattr(model.sampler, 'export_reflection_point_clouds'):
-            output_dir = join(dirname(self.trained_model), 'point_cloud')
+            output_dir = join(dirname(dirname(self.trained_model)), 'point_cloud')
             model.sampler.export_reflection_point_clouds(output_dir)
             log(green(f'Saved reflection point clouds to {blue(output_dir)}'))
 

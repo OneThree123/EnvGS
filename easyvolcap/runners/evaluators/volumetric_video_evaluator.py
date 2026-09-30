@@ -80,6 +80,7 @@ class VolumetricVideoEvaluator(VolumetricVideoVisualizer):
             metric.summary = summary
             metric.metrics = self.metrics
             metric_path = join(self.result_dir, self.metrics_file)
+            os.makedirs(dirname(metric_path), exist_ok=True)
             try:
                 with open(metric_path, 'w') as f:
                     # TODO: After finding out the offending object, we can remove the try-except block and serialize call
