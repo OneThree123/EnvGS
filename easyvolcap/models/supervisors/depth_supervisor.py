@@ -70,7 +70,7 @@ class DepthSupervisor(VolumetricVideoSupervisor):
            self.dpt_loss_weight > 0:
             mask = (torch.isfinite(batch.dpt) & (batch.dpt > 0) &
                     torch.isfinite(output.dpt_map) & (output.dpt_map > 0))
-            scalar_stats.dpt_valid_count = mask.sum()
+            scalar_stats.dpt_valid_count = mask.sum().float()
             if mask.any():
                 dpt_loss = compute_depth_loss(output.dpt_map, batch.dpt, mask)
             else:
